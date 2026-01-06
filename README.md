@@ -12,6 +12,7 @@ Windows + Docker + Python
 - LLM
 
 ## 目录结构
+'''
 enterprise_rag/
 ├── app/
 │   ├── main.py
@@ -114,4 +115,5 @@ enterprise_rag/
 ├── .env
 ├── requirements.txt
 └── README.md
+'''
 
