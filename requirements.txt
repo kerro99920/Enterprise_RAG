@@ -1,0 +1,170 @@
+# ========================================
+# 企业级RAG系统 - Python依赖包清单
+# ========================================
+#
+# 📚 本文件说明：
+# - 列出项目所需的所有Python包
+# - 安装命令: pip install -r requirements.txt
+# - 建议使用虚拟环境: python -m venv venv
+#
+# ========================================
+
+# ===== 核心Web框架 =====
+# FastAPI - 现代化、高性能的Web框架，用于构建API
+fastapi==0.109.0
+
+# Uvicorn - ASGI服务器，用于运行FastAPI应用
+# [standard] 包含所有推荐的依赖项
+uvicorn[standard]==0.27.0
+
+# Pydantic - 数据验证和设置管理库
+# 用途：1) 验证API请求数据 2) 管理配置文件
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Python-multipart - 处理文件上传
+python-multipart==0.0.6
+
+# ===== 数据库 & 存储层 =====
+
+# --- PostgreSQL关系数据库 ---
+# 用途：存储文档元数据、用户信息、查询日志等结构化数据
+psycopg2-binary==2.9.9      # PostgreSQL数据库驱动
+sqlalchemy==2.0.25          # ORM框架，简化数据库操作
+
+# --- Milvus向量数据库 ---
+# 用途：存储文档向量，支持高效的相似度搜索
+# 核心功能：向量检索、分层存储（规范库/项目库/合同库）
+pymilvus==2.3.5
+
+# --- Redis缓存 ---
+# 用途：1) 缓存热门查询结果 2) 存储用户会话 3) 提升响应速度
+redis==5.0.1                # Redis客户端
+hiredis==2.3.2              # 高性能Redis协议解析器
+
+# ===== 文档处理 =====
+
+# --- PDF处理 ---
+# 用途：解析PDF文档，提取文本和表格
+PyPDF2==3.0.1               # 基础PDF解析库
+pdfplumber==0.10.3          # 高级PDF解析（支持表格、布局）
+
+# --- Word文档处理 ---
+# 用途：解析.docx/.doc文件
+python-docx==1.1.0
+
+# --- OCR光学字符识别 ---
+# 用途：识别扫描件和图片中的文字
+# PaddleOCR是百度开源的OCR工具，支持中文识别
+paddleocr==2.7.0.3          # OCR识别引擎
+paddlepaddle==2.6.0         # PaddlePaddle深度学习框架
+
+# ===== NLP自然语言处理 & 向量化 =====
+
+# --- Transformers生态 ---
+# 用途：1) 加载预训练模型 2) 文本向量化 3) LLM推理
+transformers==4.36.2        # HuggingFace Transformers库
+torch==2.1.2                # PyTorch深度学习框架
+sentence-transformers==2.2.2 # 文本向量化专用库
+
+# --- 中文NLP工具 ---
+# 用途：中文分词、关键词提取
+jieba==0.42.1               # 结巴中文分词
+
+# --- 文本处理工具 ---
+nltk==3.8.1                 # 自然语言处理工具包
+langdetect==1.0.9           # 语言检测
+
+# ===== 检索 & 排序 =====
+
+# --- BM25关键词检索 ---
+# 用途：基于关键词的文档检索，与向量检索互补
+rank-bm25==0.2.2
+
+# --- Rerank重排序模型 ---
+# 用途：对初步检索结果进行精准重排序，提高Top-K准确率
+FlagEmbedding==1.2.3        # 包含BGE重排序模型
+
+# ===== LLM大语言模型集成 =====
+
+# OpenAI API兼容接口（可用于调用Qwen、GLM等模型）
+openai==1.10.0
+
+# HTTP请求库
+requests==2.31.0
+
+# ===== 安全 & 认证 =====
+
+# JWT令牌生成和验证
+python-jose[cryptography]==3.3.0
+
+# 密码加密
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+
+# 环境变量管理
+python-dotenv==1.0.0
+
+# ===== 实用工具 =====
+
+# --- 数据处理 ---
+pandas==2.1.4               # 数据分析库（处理CSV、Excel）
+numpy==1.26.3               # 数值计算库
+
+# --- 文件操作 ---
+openpyxl==3.1.2             # Excel文件读写
+xlrd==2.0.1                 # 老版本Excel读取
+
+# --- 日期时间 ---
+python-dateutil==2.8.2      # 日期时间处理增强
+
+# --- 日志系统 ---
+# Loguru - 更易用的日志库，比标准logging更强大
+loguru==0.7.2
+
+# --- HTTP客户端 ---
+httpx==0.26.0               # 异步HTTP客户端
+aiohttp==3.9.1              # 异步HTTP框架
+
+# ===== 测试工具 =====
+
+# Pytest - Python测试框架
+pytest==7.4.3
+pytest-asyncio==0.21.1      # 异步测试支持
+pytest-cov==4.1.0           # 测试覆盖率
+
+# ===== 开发工具 =====
+
+# 代码格式化和质量检查
+black==23.12.1              # 代码格式化工具
+flake8==7.0.0               # 代码风格检查
+mypy==1.8.0                 # 类型检查工具
+pre-commit==3.6.0           # Git提交前自动检查
+
+# ===== 部署工具 =====
+
+# Gunicorn - 生产环境WSGI服务器
+gunicorn==21.2.0
+
+# JSON日志格式化
+python-json-logger==2.0.7
+
+# ========================================
+# 📌 安装建议：
+#
+# 1. 创建虚拟环境：
+#    python -m venv venv
+#    source venv/bin/activate  # Linux/Mac
+#    venv\Scripts\activate     # Windows
+#
+# 2. 安装依赖：
+#    pip install -r requirements.txt
+#
+# 3. 验证安装：
+#    pip list
+#
+# 4. 如果安装失败，可以尝试：
+#    pip install --upgrade pip
+#    pip install -r requirements.txt --no-cache-dir
+#
+# ========================================
