@@ -1,0 +1,252 @@
+# ========================================
+# 企业级RAG系统 - Docker Compose 配置
+# ========================================
+#
+# 📚 功能说明：
+# - 一键启动所有依赖服务
+# - PostgreSQL（关系数据库）
+# - Milvus（向量数据库）
+# - Redis（缓存数据库）
+# - Etcd（Milvus依赖）
+# - MinIO（Milvus依赖）
+#
+# 🚀 使用方法：
+#   启动所有服务: docker-compose up -d
+#   停止所有服务: docker-compose down
+#   查看日志: docker-compose logs -f
+#   查看状态: docker-compose ps
+#
+# ========================================
+
+version: '3.8'
+
+services:
+  # =========================================
+  # PostgreSQL - 关系数据库
+  # =========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: rag_postgres
+    restart: unless-stopped
+    environment:
+      # 数据库配置
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_password
+      POSTGRES_DB: enterprise_rag
+      # 性能优化
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_MAX_CONNECTIONS: 200
+    ports:
+      - "5432:5432"
+    volumes:
+      # 数据持久化
+      - postgres_data:/var/lib/postgresql/data
+      # 初始化脚本（可选）
+      # - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d enterprise_rag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag_network
+
+  # =========================================
+  # Redis - 缓存数据库
+  # =========================================
+  redis:
+    image: redis:7-alpine
+    container_name: rag_redis
+    restart: unless-stopped
+    command: >
+      redis-server 
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      # 数据持久化
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag_network
+
+  # =========================================
+  # Etcd - Milvus元数据存储
+  # =========================================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: rag_etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: 1000
+      ETCD_QUOTA_BACKEND_BYTES: 4294967296
+      ETCD_SNAPSHOT_COUNT: 50000
+    command: >
+      etcd
+      -advertise-client-urls=http://127.0.0.1:2379
+      -listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - rag_network
+
+  # =========================================
+  # MinIO - Milvus对象存储
+  # =========================================
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: rag_minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: >
+      minio server /minio_data 
+      --console-address ":9001"
+    ports:
+      - "9000:9000"    # API端口
+      - "9001:9001"    # 控制台端口
+    volumes:
+      - minio_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - rag_network
+
+  # =========================================
+  # Milvus Standalone - 向量数据库
+  # =========================================
+  milvus:
+    image: milvusdb/milvus:v2.3.3
+    container_name: rag_milvus
+    restart: unless-stopped
+    depends_on:
+      - etcd
+      - minio
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      # 性能配置
+      COMMON_SECURITY_AUTHORIZATIONENABLED: false
+    command: ["milvus", "run", "standalone"]
+    ports:
+      - "19530:19530"  # gRPC端口
+      - "9091:9091"    # Metrics端口
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+    networks:
+      - rag_network
+
+# =========================================
+# 数据卷定义
+# =========================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  etcd_data:
+    driver: local
+  minio_data:
+    driver: local
+  milvus_data:
+    driver: local
+
+# =========================================
+# 网络定义
+# =========================================
+networks:
+  rag_network:
+    driver: bridge
+
+
+# =========================================
+# 📌 使用说明
+# =========================================
+#
+# 1. 启动所有服务
+#    docker-compose up -d
+#
+# 2. 查看运行状态
+#    docker-compose ps
+#
+# 3. 查看日志
+#    docker-compose logs -f
+#    docker-compose logs -f postgres  # 查看特定服务
+#
+# 4. 停止所有服务
+#    docker-compose down
+#
+# 5. 停止并删除数据
+#    docker-compose down -v
+#
+# 6. 重启服务
+#    docker-compose restart
+#
+# 7. 进入容器
+#    docker-compose exec postgres psql -U rag_user -d enterprise_rag
+#    docker-compose exec redis redis-cli
+#
+# =========================================
+# 🔧 服务端口映射
+# =========================================
+#
+# PostgreSQL:  localhost:5432
+# Redis:       localhost:6379
+# Milvus:      localhost:19530
+# MinIO API:   localhost:9000
+# MinIO控制台: localhost:9001
+#
+# =========================================
+# 📊 资源占用估算
+# =========================================
+#
+# PostgreSQL: ~200MB 内存
+# Redis:      ~100MB 内存
+# Milvus:     ~2GB 内存
+# Etcd:       ~100MB 内存
+# MinIO:      ~100MB 内存
+#
+# 总计: ~2.5GB 内存
+#
+# =========================================
+# 🔐 默认凭证
+# =========================================
+#
+# PostgreSQL:
+#   用户名: rag_user
+#   密码: rag_password
+#   数据库: enterprise_rag
+#
+# Redis:
+#   密码: 无（开发环境）
+#
+# MinIO:
+#   用户名: minioadmin
+#   密码: minioadmin
+#   控制台: http://localhost:9001
+#
+# ⚠️  生产环境请修改所有默认密码！
+#
+# =========================================
