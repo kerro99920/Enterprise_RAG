@@ -99,4 +99,222 @@ enterprise_rag/
 ├── requirements.txt            # Python 依赖
 └── README.md
 ```
+## 系统整体架构
+```
+           ┌──────────────┐
+           │   Client     │
+           │  (Web / API) │
+           └──────┬───────┘
+                  │
+           ┌──────▼───────┐
+           │   FastAPI    │
+           │  API Layer   │
+           └──────┬───────┘
+                  │
+     ┌────────────▼────────────┐
+     │     RAG 核心流程          │
+     │  Query → Retrieval → LLM │
+     └──────┬───────────┬──────┘
+            │           │
+   ┌────────▼───┐   ┌───▼────────┐
+   │ 检索子系统 │   │  LLM 子系统 │
+   │ BM25 / 向量│   │ Prompt + 推理│
+   └────┬───────┘   └────┬────────┘
+        │                │
+┌───────▼──────┐   ┌─────▼────────┐
+│   Milvus     │   │   大模型 API │
+│ 向量数据库   │   │ (可替换)     │
+└──────────────┘   └──────────────┘
+
+  MySQL：文档 / 元数据 / 日志
+  Redis：缓存 / Query 结果
+```
+
+## 核心功能
+
+1️⃣ 文档处理（Document Pipeline）
+
+#### 支持格式：
+
+  PDF
+  
+  Word（.doc / .docx）
+
+  扫描版文档（OCR）
+
+#### 处理流程：
+
+  文档加载（Loader）
+  
+  内容解析（Parser）
+  
+  文本清洗（Cleaner）
+  
+  Chunk 切分（Splitter）
+  
+  元数据封装（Metadata）
+
+2️⃣ 向量化（Embedding）
+
+  支持批量文本向量生成
+  
+  向量与 Chunk 元数据解耦存储
+  
+  可替换不同 Embedding 模型（如 BGE / E5 / OpenAI）
+
+3️⃣ 检索系统（Retrieval）
+
+#### 🔹 向量检索
+
+  基于 Milvus
+  
+  支持 TopK、相似度阈值
+
+#### 🔹 关键词检索
+
+  基于 BM25
+  
+  提升长文本 / 专业术语召回率
+
+#### 🔹 混合检索（Hybrid Retrieval）
+
+  向量检索 + BM25
+  
+  结果合并 + 去重 + 加权
+
+#### 🔹 重排序（Rerank）
+
+  对候选 Chunk 进行相关性精排
+  
+  减少无关上下文注入
+
+4️⃣ 大模型生成（LLM）
+
+  Prompt 模板化管理
+  
+  #### 强约束回答来源：
+  
+  未检索到内容 → 明确返回「文档中未找到」
+
+#### 支持：
+
+  私有化模型
+  
+  云端 API（可替换）
+
+5️⃣ 缓存与日志
+
+#### Redis：
+
+  Query → Answer 缓存
+  
+  降低大模型调用成本
+
+#### MySQL：
+
+  文档信息
+  
+  Chunk 元数据
+  
+  问答日志（可用于评估与微调）
+
+## 目录结构说明
+```
+enterprise_rag/
+├── app/                # 主应用
+│   ├── main.py         # 项目入口
+│   ├── api/            # API 接口层
+│   ├── core/           # 核心配置 / 日志 / 常量
+│   ├── services/       # 核心业务逻辑
+│   ├── models/         # 数据模型
+│   ├── repository/     # DAO 数据访问层
+│   └── utils/          # 工具类
+│
+├── docker/             # Docker & Compose
+├── data/               # 原始文档 / 中间数据
+├── scripts/            # 初始化 & 数据导入脚本
+├── tests/              # 测试用例
+├── .env                # 环境变量
+├── requirements.txt
+└── README.md
+```
+## 快速启动
+1️⃣ 环境要求
+  Windows / Linux
+  
+  Docker & Docker Compose
+  
+  Python ≥ 3.9
+  
+2️⃣ 启动基础服务
+```
+cd docker
+docker-compose up -d
+```
+#### 启动服务包括：
+
+  Milvus
+  
+  MySQL
+  
+  Redis
+  
+3️⃣ 初始化向量库
+
+python scripts/init_milvus.py
+
+4️⃣ 文档入库
+
+python scripts/ingest_docs.py
+
+5️⃣ 启动 API 服务
+
+python app/main.py
+
+## RAG 问答流程说明
+```
+用户提问
+   ↓
+Query 预处理
+   ↓
+混合检索（向量 + BM25）
+   ↓
+Rerank 精排
+   ↓
+构造 Prompt（仅使用检索内容）
+   ↓
+LLM 生成答案
+   ↓
+缓存 & 日志记录
+```
+
+关键设计点：
+
+❗ 没检索到内容 → 不调用 LLM
+
+❗ Prompt 明确限制模型不得编造
+
+❗ 检索与生成完全解耦，便于扩展 Agent
+
+## 可扩展方向
+
+🔹 Agent 多工具调用
+
+🔹 多知识库 / 多租户
+
+🔹 SSO / 权限控制
+
+🔹 Query 质量评估与自动调优
+
+🔹 微调 / RAG 评测闭环
+
+## 适用场景
+
+企业内部知识库
+
+工程 / 运维 / 法律 / 制度问答
+
+私有文档智能检索
+
+私有化大模型应用
 
