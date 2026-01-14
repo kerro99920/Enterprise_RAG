@@ -21,6 +21,16 @@ from models.document import (
     DocumentMetadata,  # 文档元数据表
 )
 
+# ===== 导入项目与Agent相关模型 =====
+from models.project import (
+    ProjectBasic,
+    TaskSchedule,
+    CostDetail,
+    SafetyRecord,
+    QualityReport,
+    AgentWorkflowLog,
+)
+
 # ===== 导入查询相关模型 =====
 from models.query import (
     QueryLog,  # 查询日志表
@@ -43,6 +53,14 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "DocumentMetadata",
+
+    # 项目与Agent相关模型
+    "ProjectBasic",
+    "TaskSchedule",
+    "CostDetail",
+    "SafetyRecord",
+    "QualityReport",
+    "AgentWorkflowLog",
 
     # 查询模型
     "QueryLog",
@@ -67,6 +85,12 @@ def get_all_models():
         Document,
         DocumentChunk,
         DocumentMetadata,
+        ProjectBasic,
+        TaskSchedule,
+        CostDetail,
+        SafetyRecord,
+        QualityReport,
+        AgentWorkflowLog,
         QueryLog,
         QueryFeedback,
         User,
