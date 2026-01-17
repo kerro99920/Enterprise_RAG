@@ -1,4 +1,4 @@
-# RAG 智能知识问答系统
+# RAG 智能工程知识问答系统
 
 Windows + Docker + Python  
 基于 Milvus + MySQL + Redis + 大模型的私有化 RAG 问答系统
