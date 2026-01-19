@@ -1,11 +1,11 @@
 """
 ========================================
-RAG 系统 - 主入口
+ RAG 系统 - 主入口（更新版）
 ========================================
 
 📚 模块说明：
 - FastAPI 应用入口
-- 路由注册
+- 路由注册（包含Agent路由）
 - 中间件配置
 - 生命周期管理
 
@@ -40,6 +40,7 @@ from core.logger import logger
 
 # 导入路由
 from app.api.v1 import qa, document, admin
+from app.api.v1 import agents as agents_api  # 新增Agent路由
 
 
 # =========================================
@@ -94,43 +95,43 @@ async def check_services():
         from services.cache.redis_client import redis_client
         if redis_client.ping():
             logger.info("  ✓ Redis 连接正常")
-        else:
-            logger.warning("  ⚠ Redis 连接失败")
     except Exception as e:
-        logger.warning(f"  ⚠ Redis 检查异常: {e}")
-
-    # 检查 Milvus
-    try:
-        from pymilvus import connections, utility
-        connections.connect(
-            alias="default",
-            host=settings.MILVUS_HOST,
-            port=settings.MILVUS_PORT
-        )
-        logger.info("  ✓ Milvus 连接正常")
-    except Exception as e:
-        logger.warning(f"  ⚠ Milvus 检查异常: {e}")
+        logger.warning(f"  ✗ Redis 连接失败: {e}")
 
     # 检查 PostgreSQL
     try:
-        from sqlalchemy import create_engine, text
-        engine = create_engine(settings.postgres_url)
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        logger.info("  ✓ PostgreSQL 连接正常")
+        from core.database import check_db_connection
+        if check_db_connection():
+            logger.info("  ✓ PostgreSQL 连接正常")
     except Exception as e:
-        logger.warning(f"  ⚠ PostgreSQL 检查异常: {e}")
+        logger.warning(f"  ✗ PostgreSQL 连接失败: {e}")
+
+    # 检查 Milvus
+    try:
+        from services.retrieval.milvus_client import milvus_client
+        if milvus_client.is_connected():
+            logger.info("  ✓ Milvus 连接正常")
+    except Exception as e:
+        logger.warning(f"  ✗ Milvus 连接失败: {e}")
 
 
 async def cleanup_resources():
     """清理资源"""
     try:
-        # 断开 Milvus 连接
-        from pymilvus import connections
-        connections.disconnect("default")
-        logger.info("  ✓ Milvus 连接已断开")
+        # 关闭 Redis 连接
+        from services.cache.redis_client import redis_client
+        redis_client.close()
+        logger.info("  ✓ Redis 连接已关闭")
     except Exception as e:
-        logger.warning(f"  ⚠ Milvus 断开异常: {e}")
+        logger.warning(f"  ✗ Redis 关闭失败: {e}")
+
+    try:
+        # 关闭 Milvus 连接
+        from services.retrieval.milvus_client import milvus_client
+        milvus_client.close()
+        logger.info("  ✓ Milvus 连接已关闭")
+    except Exception as e:
+        logger.warning(f"  ✗ Milvus 关闭失败: {e}")
 
 
 # =========================================
@@ -140,29 +141,24 @@ async def cleanup_resources():
 app = FastAPI(
     title=settings.APP_NAME,
     description="""
-## 🎯 企业级 RAG 智能知识问答系统
-
-基于 Milvus + PostgreSQL + Redis + 大模型的私有化 RAG 问答系统。
-
-### 主要功能
-
-- **📄 文档管理**: 上传、解析、向量化文档
-- **🔍 智能检索**: 混合检索（向量 + BM25）+ 重排序
-- **💬 智能问答**: 基于检索的增强生成（RAG）
-- **📊 系统管理**: 索引管理、缓存管理、统计分析
-
-### 技术栈
-
-- FastAPI + Uvicorn
-- Milvus (向量数据库)
-- PostgreSQL (关系数据库)
-- Redis (缓存)
-- 大模型 (可配置)
+    企业级 RAG 智能问答系统
+    
+    ## 功能特性
+    
+    * 📄 **文档管理** - 支持 PDF、Word、文本等多种格式
+    * 🔍 **智能检索** - 混合检索 + 重排序
+    * 💬 **智能问答** - 基于检索内容生成回答
+    * 🤖 **Agent 智能体** - 周报生成、风险分析等
+    * 📊 **项目管理** - 进度、成本、安全分析
+    
+    ## API 版本
+    
+    当前版本：v1
     """,
     version=settings.APP_VERSION,
+    openapi_url=f"{settings.API_PREFIX}/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json",
     lifespan=lifespan
 )
 
@@ -171,10 +167,10 @@ app = FastAPI(
 # 中间件配置
 # =========================================
 
-# CORS 跨域配置
+# CORS 配置
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应该限制具体域名
+    allow_origins=["*"],  # 生产环境应限制具体域名
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -248,24 +244,45 @@ async def general_exception_handler(request: Request, exc: Exception):
 # 注册路由
 # =========================================
 
-# API v1 路由
+# API v1 路由 - 问答
 app.include_router(
     qa.router,
     prefix=f"{settings.API_PREFIX}/qa",
     tags=["问答接口"]
 )
 
+# API v1 路由 - 文档管理
 app.include_router(
     document.router,
     prefix=f"{settings.API_PREFIX}/document",
     tags=["文档管理"]
 )
 
+# API v1 路由 - 系统管理
 app.include_router(
     admin.router,
     prefix=f"{settings.API_PREFIX}/admin",
     tags=["系统管理"]
 )
+
+# API v1 路由 - Agent 智能体（新增）
+app.include_router(
+    agents_api.router,
+    prefix=f"{settings.API_PREFIX}/agents",
+    tags=["Agent 智能体"]
+)
+
+# 如果存在项目管理路由，也注册
+try:
+    from app.api.v1 import projects
+    app.include_router(
+        projects.router,
+        prefix=f"{settings.API_PREFIX}/projects",
+        tags=["项目管理"]
+    )
+    logger.info("已注册项目管理路由")
+except ImportError:
+    logger.debug("项目管理路由未找到，跳过注册")
 
 
 # =========================================
@@ -282,7 +299,13 @@ async def root():
         "version": settings.APP_VERSION,
         "status": "running",
         "docs": "/docs",
-        "api_prefix": settings.API_PREFIX
+        "api_prefix": settings.API_PREFIX,
+        "features": [
+            "RAG 智能问答",
+            "文档管理",
+            "Agent 智能体",
+            "项目管理"
+        ]
     }
 
 
@@ -324,6 +347,13 @@ async def system_info():
             "milvus_host": settings.MILVUS_HOST,
             "redis_host": settings.REDIS_HOST,
             "postgres_host": settings.POSTGRES_HOST
+        },
+        "routes": {
+            "qa": f"{settings.API_PREFIX}/qa",
+            "document": f"{settings.API_PREFIX}/document",
+            "admin": f"{settings.API_PREFIX}/admin",
+            "agents": f"{settings.API_PREFIX}/agents",
+            "projects": f"{settings.API_PREFIX}/projects"
         }
     }
 
@@ -373,4 +403,21 @@ curl http://localhost:8000/health
 
 # 7. 系统信息
 curl http://localhost:8000/info
+
+# 8. Agent 接口示例
+# 生成周报
+curl -X POST "http://localhost:8000/api/v1/agents/weekly-report" \
+     -H "Content-Type: application/json" \
+     -d '{"project_id": "P001", "format": "markdown"}'
+
+# 风险分析
+curl -X POST "http://localhost:8000/api/v1/agents/risk-analysis" \
+     -H "Content-Type: application/json" \
+     -d '{"project_id": "P001"}'
+
+# 快速风险扫描
+curl "http://localhost:8000/api/v1/agents/risk-analysis/P001/quick-scan"
+
+# 项目仪表盘
+curl "http://localhost:8000/api/v1/agents/dashboard/P001"
 """
