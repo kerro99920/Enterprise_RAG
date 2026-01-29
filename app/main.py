@@ -40,7 +40,7 @@ from core.logger import logger
 
 # 导入路由
 from app.api.v1 import qa, document, admin
-from app.api.v1 import agents as agents_api  # 新增Agent路由
+from agents.api.v1 import agents as agents_api  # 新增Agent路由
 
 
 # =========================================
@@ -141,7 +141,7 @@ async def cleanup_resources():
 app = FastAPI(
     title=settings.APP_NAME,
     description="""
-    企业级 RAG 智能问答系统
+    RAG 智能问答系统
     
     ## 功能特性
     
