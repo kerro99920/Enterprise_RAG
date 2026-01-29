@@ -38,6 +38,15 @@ from services.llm.llm_client import LLMClient
 from services.llm.prompt.qa_prompt import QAPromptFactory
 from services.cache.redis_client import redis_client
 
+# 图谱增强检索组件
+try:
+    from services.retrieval.graph.graph_retriever import GraphRetriever
+    from services.retrieval.graph_enhanced_retriever import GraphEnhancedRetriever
+    GRAPH_RETRIEVAL_AVAILABLE = True
+except ImportError:
+    GRAPH_RETRIEVAL_AVAILABLE = False
+    logger.warning("图谱检索组件未加载，图谱增强功能不可用")
+
 
 class RagPipeline:
     """
@@ -67,7 +76,9 @@ class RagPipeline:
         vector_retriever: Optional[VectorRetriever] = None,
         reranker: Optional[Reranker] = None,
         use_cache: bool = True,
-        language: str = 'zh'
+        language: str = 'zh',
+        enable_graph: bool = True,
+        graph_weight: float = 0.3
     ):
         """
         初始化 RAG Pipeline
@@ -80,9 +91,13 @@ class RagPipeline:
             reranker: 重排序器实例
             use_cache: 是否使用缓存
             language: 回答语言 ('zh' 或 'en')
+            enable_graph: 是否启用图谱增强检索
+            graph_weight: 图谱检索结果权重 (0.0-1.0)
         """
         self.use_cache = use_cache
         self.language = language
+        self.enable_graph = enable_graph and GRAPH_RETRIEVAL_AVAILABLE
+        self.graph_weight = graph_weight
 
         # 初始化组件（懒加载）
         self._embedding_model = embedding_model
@@ -92,13 +107,18 @@ class RagPipeline:
         self._reranker = reranker
         self._hybrid_retriever = None
 
+        # 图谱增强组件
+        self._graph_retriever = None
+        self._graph_enhanced_retriever = None
+
         # 组件初始化标志
         self._initialized = False
 
         logger.info(
             f"RAG Pipeline 创建 | "
             f"缓存: {use_cache} | "
-            f"语言: {language}"
+            f"语言: {language} | "
+            f"图谱增强: {self.enable_graph}"
         )
 
     def _lazy_init(self):
@@ -158,6 +178,27 @@ class RagPipeline:
             fusion_method='rrf'
         )
 
+        # 8. 初始化图谱增强组件（如果启用）
+        if self.enable_graph and GRAPH_RETRIEVAL_AVAILABLE:
+            try:
+                # 图谱检索器
+                self._graph_retriever = GraphRetriever()
+
+                # 图谱增强检索器（三路融合）
+                self._graph_enhanced_retriever = GraphEnhancedRetriever(
+                    bm25_retriever=self._bm25_retriever,
+                    vector_retriever=self._vector_retriever,
+                    graph_retriever=self._graph_retriever,
+                    reranker=self._reranker,
+                    graph_weight=self.graph_weight
+                )
+                logger.info(f"图谱增强检索器已启用 | 图谱权重: {self.graph_weight}")
+            except Exception as e:
+                logger.warning(f"图谱增强组件初始化失败: {e}")
+                self._graph_retriever = None
+                self._graph_enhanced_retriever = None
+                self.enable_graph = False
+
         self._initialized = True
         logger.info("RAG Pipeline 组件初始化完成")
 
@@ -169,7 +210,8 @@ class RagPipeline:
         project_id: Optional[str] = None,
         extra_context: Optional[str] = None,
         use_rerank: bool = True,
-        skip_cache: bool = False
+        skip_cache: bool = False,
+        use_graph: Optional[bool] = None
     ) -> Dict[str, Any]:
         """
         执行 RAG 流程（异步）
@@ -181,6 +223,7 @@ class RagPipeline:
             extra_context: 额外上下文
             use_rerank: 是否使用重排序
             skip_cache: 是否跳过缓存
+            use_graph: 是否使用图谱增强（None 表示使用默认配置）
 
         返回：
             {
@@ -188,11 +231,13 @@ class RagPipeline:
                 'sources': List[Dict],   # 来源文档
                 'query': str,            # 原始问题
                 'cached': bool,          # 是否来自缓存
+                'graph_context': str,    # 图谱上下文（如果启用）
                 'metadata': {
                     'retrieval_count': int,
                     'response_time': float,
                     'model': str,
-                    'timestamp': str
+                    'timestamp': str,
+                    'graph_enhanced': bool
                 }
             }
         """
@@ -214,12 +259,16 @@ class RagPipeline:
         # Step 2: 查询预处理
         processed_query = self._preprocess_query(query)
 
-        # Step 3: 混合检索
-        retrieved_docs = await self._retrieve(
+        # 确定是否使用图谱增强
+        should_use_graph = use_graph if use_graph is not None else self.enable_graph
+
+        # Step 3: 混合检索（支持图谱增强）
+        retrieved_docs, graph_context = await self._retrieve(
             query=processed_query,
             top_k=top_k,
             project_id=project_id,
-            use_rerank=use_rerank
+            use_rerank=use_rerank,
+            use_graph=should_use_graph
         )
 
         # Step 4: 检查是否有检索结果
@@ -227,11 +276,12 @@ class RagPipeline:
             logger.warning("未检索到相关文档")
             return self._generate_no_result_response(query, start_time)
 
-        # Step 5: 构建 Prompt
+        # Step 5: 构建 Prompt（包含图谱上下文）
         prompt = self._build_prompt(
             query=query,
             contexts=retrieved_docs,
-            extra_context=extra_context
+            extra_context=extra_context,
+            graph_context=graph_context
         )
 
         # Step 6: LLM 生成答案
@@ -242,7 +292,9 @@ class RagPipeline:
             query=query,
             answer=answer,
             sources=retrieved_docs,
-            start_time=start_time
+            start_time=start_time,
+            graph_context=graph_context,
+            graph_enhanced=should_use_graph and graph_context is not None
         )
 
         # Step 8: 缓存结果
@@ -310,12 +362,21 @@ class RagPipeline:
         query: str,
         top_k: int,
         project_id: Optional[str],
-        use_rerank: bool
-    ) -> List[Dict]:
+        use_rerank: bool,
+        use_graph: bool = False
+    ) -> tuple[List[Dict], Optional[str]]:
         """
-        执行混合检索
+        执行混合检索（支持图谱增强）
 
-        返回检索到的文档列表
+        参数：
+            query: 查询文本
+            top_k: 返回结果数量
+            project_id: 项目过滤
+            use_rerank: 是否重排序
+            use_graph: 是否使用图谱增强
+
+        返回：
+            (检索结果列表, 图谱上下文)
         """
         try:
             # 构建过滤条件
@@ -323,30 +384,53 @@ class RagPipeline:
             if project_id:
                 filters = f"project_id == '{project_id}'"
 
-            # 执行检索
-            results = self._hybrid_retriever.search(
-                query=query,
-                top_k=top_k,
-                use_rerank=use_rerank,
-                filters=filters
-            )
+            graph_context = None
 
-            return results
+            # 判断是否使用图谱增强检索
+            if use_graph and self._graph_enhanced_retriever is not None:
+                logger.info("使用图谱增强三路检索")
+
+                # 使用图谱增强检索器（三路融合）
+                results = await self._graph_enhanced_retriever.search_async(
+                    query=query,
+                    top_k=top_k,
+                    use_rerank=use_rerank,
+                    filters=filters,
+                    enhance_with_graph=True
+                )
+
+                # 从检索结果中提取图谱上下文
+                graph_context = self._graph_enhanced_retriever.get_graph_context_for_prompt(results)
+
+                if graph_context:
+                    logger.info(f"图谱上下文生成完成 | 长度: {len(graph_context)}")
+            else:
+                # 使用标准混合检索
+                results = self._hybrid_retriever.search(
+                    query=query,
+                    top_k=top_k,
+                    use_rerank=use_rerank,
+                    filters=filters
+                )
+
+            return results, graph_context
 
         except Exception as e:
             logger.error(f"检索失败: {e}")
-            return []
+            return [], None
 
     def _build_prompt(
         self,
         query: str,
         contexts: List[Dict],
-        extra_context: Optional[str]
+        extra_context: Optional[str],
+        graph_context: Optional[str] = None
     ) -> str:
         """
         构建 LLM Prompt
 
         使用 QAPromptFactory 构建标准化的 Prompt
+        支持图谱上下文增强
         """
         # 提取上下文文本
         context_items = []
@@ -372,11 +456,37 @@ class RagPipeline:
             include_metadata=True
         )
 
+        # 添加图谱知识上下文（优先级最高）
+        if graph_context:
+            graph_section = self._format_graph_context(graph_context)
+            prompt = f"{graph_section}\n\n{prompt}"
+
         # 添加额外上下文
         if extra_context:
             prompt = f"{prompt}\n\n【额外信息】\n{extra_context}"
 
         return prompt
+
+    def _format_graph_context(self, graph_context: str) -> str:
+        """
+        格式化图谱上下文
+
+        将图谱知识以结构化方式嵌入 Prompt
+        """
+        if self.language == 'zh':
+            return f"""【知识图谱参考】
+以下是从工程知识图谱中提取的结构化信息，请优先参考：
+
+{graph_context}
+
+---"""
+        else:
+            return f"""【Knowledge Graph Reference】
+The following structured information is extracted from the engineering knowledge graph. Please prioritize this:
+
+{graph_context}
+
+---"""
 
     async def _generate_answer(self, prompt: str) -> str:
         """
@@ -435,20 +545,23 @@ Requirements:
         query: str,
         answer: str,
         sources: List[Dict],
-        start_time: datetime
+        start_time: datetime,
+        graph_context: Optional[str] = None,
+        graph_enhanced: bool = False
     ) -> Dict[str, Any]:
         """构建返回结果"""
         end_time = datetime.now()
         response_time = (end_time - start_time).total_seconds()
 
-        return {
+        result = {
             'answer': answer,
             'sources': [
                 {
                     'doc_id': doc.get('doc_id', ''),
                     'text': doc.get('text', '')[:500],  # 截断
                     'score': doc.get('rerank_score', doc.get('score', 0)),
-                    'metadata': doc.get('metadata', {})
+                    'metadata': doc.get('metadata', {}),
+                    'from_graph': doc.get('from_graph', False)  # 标记是否来自图谱
                 }
                 for doc in sources
             ],
@@ -458,9 +571,16 @@ Requirements:
                 'retrieval_count': len(sources),
                 'response_time': response_time,
                 'model': self._llm_client.model if self._llm_client else 'unknown',
-                'timestamp': end_time.isoformat()
+                'timestamp': end_time.isoformat(),
+                'graph_enhanced': graph_enhanced
             }
         }
+
+        # 添加图谱上下文摘要
+        if graph_context:
+            result['graph_context'] = graph_context[:500] if len(graph_context) > 500 else graph_context
+
+        return result
 
     def _generate_no_result_response(
         self,
@@ -486,7 +606,8 @@ Requirements:
                 'response_time': response_time,
                 'model': 'none',
                 'timestamp': end_time.isoformat(),
-                'no_result': True
+                'no_result': True,
+                'graph_enhanced': False
             }
         }
 
@@ -563,4 +684,33 @@ pipeline = RagPipeline(
 )
 
 result = await pipeline.run(query="...")
+
+
+# 7. 图谱增强检索（默认启用）
+pipeline = RagPipeline(
+    enable_graph=True,      # 启用图谱增强
+    graph_weight=0.3        # 图谱结果权重
+)
+
+result = await pipeline.run(
+    query="KL-1 框架梁使用什么材料？",
+    top_k=5
+)
+print(f"答案: {result['answer']}")
+print(f"图谱增强: {result['metadata']['graph_enhanced']}")
+if 'graph_context' in result:
+    print(f"图谱上下文: {result['graph_context']}")
+
+
+# 8. 禁用图谱增强（单次查询）
+result = await pipeline.run(
+    query="什么是剪力墙？",
+    use_graph=False  # 本次查询不使用图谱
+)
+
+
+# 9. 完全禁用图谱增强
+pipeline = RagPipeline(
+    enable_graph=False  # 完全禁用图谱
+)
 """

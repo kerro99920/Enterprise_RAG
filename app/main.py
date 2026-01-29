@@ -40,7 +40,16 @@ from core.logger import logger
 
 # 导入路由
 from app.api.v1 import qa, document, admin
-from agents.api.v1 import agents as agents_api  # 新增Agent路由
+from agents.api.v1 import agents as agents_api  # Agent路由
+
+# 新增：施工图和知识图谱路由
+try:
+    from app.api.v1 import drawing as drawing_api
+    from app.api.v1 import graph as graph_api
+    DRAWING_GRAPH_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"施工图/知识图谱路由加载失败: {e}")
+    DRAWING_GRAPH_AVAILABLE = False
 
 
 # =========================================
@@ -113,6 +122,14 @@ async def check_services():
             logger.info("  ✓ Milvus 连接正常")
     except Exception as e:
         logger.warning(f"  ✗ Milvus 连接失败: {e}")
+
+    # 检查 Neo4j
+    try:
+        from services.graph.neo4j_client import neo4j_client
+        if neo4j_client.ping():
+            logger.info("  ✓ Neo4j 连接正常")
+    except Exception as e:
+        logger.warning(f"  ✗ Neo4j 连接失败: {e}")
 
 
 async def cleanup_resources():
@@ -265,12 +282,29 @@ app.include_router(
     tags=["系统管理"]
 )
 
-# API v1 路由 - Agent 智能体（新增）
+# API v1 路由 - Agent 智能体
 app.include_router(
     agents_api.router,
     prefix=f"{settings.API_PREFIX}/agents",
     tags=["Agent 智能体"]
 )
+
+# API v1 路由 - 施工图处理（新增）
+if DRAWING_GRAPH_AVAILABLE:
+    app.include_router(
+        drawing_api.router,
+        prefix=f"{settings.API_PREFIX}/drawing",
+        tags=["施工图处理"]
+    )
+    logger.info("已注册施工图处理路由")
+
+    # API v1 路由 - 知识图谱（新增）
+    app.include_router(
+        graph_api.router,
+        prefix=f"{settings.API_PREFIX}/graph",
+        tags=["知识图谱"]
+    )
+    logger.info("已注册知识图谱路由")
 
 # 如果存在项目管理路由，也注册
 try:
@@ -304,7 +338,9 @@ async def root():
             "RAG 智能问答",
             "文档管理",
             "Agent 智能体",
-            "项目管理"
+            "项目管理",
+            "施工图处理",
+            "知识图谱"
         ]
     }
 
@@ -353,7 +389,9 @@ async def system_info():
             "document": f"{settings.API_PREFIX}/document",
             "admin": f"{settings.API_PREFIX}/admin",
             "agents": f"{settings.API_PREFIX}/agents",
-            "projects": f"{settings.API_PREFIX}/projects"
+            "projects": f"{settings.API_PREFIX}/projects",
+            "drawing": f"{settings.API_PREFIX}/drawing",
+            "graph": f"{settings.API_PREFIX}/graph"
         }
     }
 

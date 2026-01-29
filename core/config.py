@@ -144,6 +144,33 @@ class Settings(BaseSettings):
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # =========================================
+    # Neo4j 图数据库配置
+    # =========================================
+    # 用途：
+    # 1. 存储施工图知识图谱
+    # 2. 管理实体和关系（构件、材料、规范等）
+    # 3. 支持图谱增强的RAG检索
+
+    NEO4J_URI: str = Field(default="bolt://localhost:7687", description="Neo4j连接URI")
+    NEO4J_USER: str = Field(default="neo4j", description="Neo4j用户名")
+    NEO4J_PASSWORD: str = Field(default="", description="Neo4j密码")
+    NEO4J_DATABASE: str = Field(default="neo4j", description="Neo4j数据库名")
+
+    # --- 连接池配置 ---
+    NEO4J_MAX_CONNECTION_POOL_SIZE: int = Field(default=50, description="最大连接池大小")
+    NEO4J_CONNECTION_TIMEOUT: int = Field(default=30, description="连接超时时间(秒)")
+    NEO4J_MAX_TRANSACTION_RETRY_TIME: int = Field(default=30, description="事务最大重试时间(秒)")
+
+    @property
+    def neo4j_url(self) -> str:
+        """
+        获取Neo4j连接URI
+
+        返回格式：bolt://主机:端口
+        """
+        return self.NEO4J_URI
+
+    # =========================================
     # 文件路径配置
     # =========================================
     # 📁 项目目录结构：
