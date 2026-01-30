@@ -1,3 +1,44 @@
+from enum import Enum
+
+
+# =========================================
+# 用户角色
+# =========================================
+class UserRole(str, Enum):
+    """
+    用户角色枚举
+
+    权限从高到低：
+    - ADMIN: 系统管理员，拥有所有权限
+    - MANAGER: 项目经理，可管理项目和文档
+    - ENGINEER: 工程师，可上传和查询文档
+    - VIEWER: 访客，只读权限
+    """
+    ADMIN = "admin"
+    MANAGER = "manager"
+    ENGINEER = "engineer"
+    VIEWER = "viewer"
+
+
+# =========================================
+# 权限级别
+# =========================================
+class PermissionLevel(str, Enum):
+    """
+    文档权限级别
+
+    访问限制从低到高：
+    - PUBLIC: 公开，所有人可访问
+    - INTERNAL: 内部，登录用户可访问
+    - CONFIDENTIAL: 机密，需要特定权限
+    - RESTRICTED: 受限，仅管理员可访问
+    """
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    CONFIDENTIAL = "confidential"
+    RESTRICTED = "restricted"
+
+
 # =========================================
 # HTTP状态码
 # =========================================
